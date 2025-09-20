@@ -1,0 +1,6 @@
+@WebAPIDemo_HostAddress = http://localhost:5246
+
+GET {{WebAPIDemo_HostAddress}}/product/
+Accept: application/json
+
+###
