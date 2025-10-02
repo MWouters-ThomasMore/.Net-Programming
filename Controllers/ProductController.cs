@@ -1,4 +1,5 @@
-﻿
+﻿using AutoMapper;
+using WebAPIDemo.DTO.Product;
 
 namespace WebAPIDemo.Controllers
 {
@@ -6,20 +7,24 @@ namespace WebAPIDemo.Controllers
     [ApiController]
     public class ProductController : ControllerBase
     {
-        private WebAPIDemoContext _context;
+        private IUnitOfWork _uow;
+        private IMapper _mapper;
 
-        public ProductController(WebAPIDemoContext context)
+        public ProductController(IUnitOfWork uow, IMapper mapper)
         {
-            _context = context;
+            _uow = uow;
+            _mapper = mapper;
         }
 
-        // GET: api/<ProductController>
         [HttpGet("GetAll")]
-        public ActionResult<List<Product>> Get()
+        public async Task<ActionResult<List<ProductDTO>>> Get()
         {
-            var producten = _context.Producten.ToList();
-            if (producten.Count > 0) {
-                return Ok(producten);
+            List<Product> producten = await _uow.ProductRepo.GetAll();
+
+            if (producten.Count > 0)
+            {
+                List<ProductDTO> dtos = _mapper.Map<List<ProductDTO>>(producten);
+                return Ok(dtos);
             }
             else
             {
@@ -27,72 +32,81 @@ namespace WebAPIDemo.Controllers
             }
         }
 
-        // GET api/<ProductController>/5
         [HttpGet("{id}")]
-        public ActionResult<Product> GetProduct(int id)
+        public async Task<ActionResult<ProductDTO>> GetProduct(int id)
         {
-            Product product = _context.Producten.FirstOrDefault(x => x.Id == id);
-            if (product == null)
+            Product model = await _uow.ProductRepo.GetObject(id);
+
+            if (model == null)
             {
                 return NotFound($"Product {id} kan niet worden gevonden in de database");
             }
-            return Ok(product);            
+
+            ProductDTO dto = _mapper.Map<ProductDTO>(model);
+            return Ok(dto);
         }
 
         [HttpGet("Search")]
-        public ActionResult<List<Product>> Search(string zoekwaarde)
+        public async Task<ActionResult<List<ProductDTO>>> Search(string zoekwaarde)
         {
-            var product = _context.Producten.Where(x=>x.Naam.Contains(zoekwaarde)).OrderBy(x=>x.Naam);
-            if (product == null)
+            List<Product> modellen = await _uow.ProductRepo.SearchByNameAsync(zoekwaarde);
+
+            if (modellen == null)
             {
                 return NotFound($"Er zijn geen producten in de database waar {zoekwaarde} voorkomt in de naam");
             }
-            return Ok(product);
+
+            List<ProductDTO> dtos = _mapper.Map<List<ProductDTO>>(modellen);
+            return Ok(dtos);
         }
 
         [HttpPost]
-        public async Task<ActionResult<Product>> ProductToevoegen(Product product)
+        public async Task<ActionResult<Product>> ProductToevoegen(AddProductDTO dto)
         {
-            //Validatie
-            if (_context.Producten == null)
-                return NotFound("De tabel Producten bestaat niet in de database.");
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
-            //Product toevoegen aan de DbSet
-            await _context.Producten.AddAsync(product);
+            // Manuele mapping -> BAD practice, fout-en veranderinggevoelig. Veel herhalend werk
+            //Product model = new Product();
+            //model.Beschrijving = dto.Beschrijving;
+            //model.Naam = dto.Naam;
+            //model.Prijs = dto.Price;
+
+            Product model = _mapper.Map<Product>(dto);
+
+            await _uow.ProductRepo.Add(model);
             try
             {
-                //Product wegschrijven naar de database
-                _context.SaveChanges();
+                await _uow.SaveChangesAsync();
             }
-            catch (DbUpdateException dbError) 
+            catch (DbUpdateException dbError)
             {
                 return BadRequest(dbError);
             }
-            return CreatedAtAction("GetProduct", new {id = product.Id}, product);
+            return CreatedAtAction("GetProduct", new { id = model.Id }, model);
         }
 
         [HttpPut("{id}")]
-        public ActionResult ProductWijzigen(int id, Product product)
+        public async Task<ActionResult> ProductWijzigen(int id, UpdateProductDTO dto)
         {
-            if (id != product.Id)
+            if (id != dto.Id)
             {
                 return BadRequest("De opgegeven id's komen niet overeen.");
             }
-            //Hier kan nog andere validatie komen.
 
-            _context.Producten.Update(product);
+            Product model = _mapper.Map<Product>(dto);
+            await _uow.ProductRepo.Update(model);
 
             try
             {
-                _context.SaveChanges();
+                await _uow.SaveChangesAsync();
             }
             catch (DbUpdateConcurrencyException)
             {
-                if (_context.Producten.Any(x => x.Id == id))
+                List<Product> producten = await _uow.ProductRepo.GetAll();
+                if (producten.Any(x => x.Id == id))
                 {
                     return NotFound("Er is geen product met dit id gevonden");
                 }
@@ -106,20 +120,21 @@ namespace WebAPIDemo.Controllers
         }
 
         [HttpDelete("{id}")]
-        public async Task<IActionResult> ProductVerwijdern(int id)
+        public async Task<IActionResult> ProductVerwijderen (int id)
         {
-            if (_context.Producten == null)
+            List<Product> producten = await _uow.ProductRepo.GetAll();
+            if (producten == null)
             {
                 return NotFound("De tabel producten bestaat niet.");
             }
-            Product product = await _context.Producten.FirstOrDefaultAsync(x=>x.Id == id);
+            Product? product = await _uow.ProductRepo.GetObject(id);
             if (product == null)
             {
                 return NotFound("Het product met deze id is niet gevonden.");
             }
 
-            _context.Producten.Remove(product);
-            _context.SaveChanges();
+            await _uow.ProductRepo.Delete(product);
+            await _uow.SaveChangesAsync();
 
             return Ok($"Product met id {id} is verwijderd");
         }

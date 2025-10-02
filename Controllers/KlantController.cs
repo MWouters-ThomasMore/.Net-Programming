@@ -1,12 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using WebAPIDemo.Data;
-using WebAPIDemo.Models;
+﻿using AutoMapper;
+using WebAPIDemo.DTO.Bestellingen;
+using WebAPIDemo.DTO.Klant;
 
 namespace WebAPIDemo.Controllers
 {
@@ -14,55 +8,88 @@ namespace WebAPIDemo.Controllers
     [ApiController]
     public class KlantController : ControllerBase
     {
-        private readonly WebAPIDemoContext _context;
+        private readonly IUnitOfWork _uow;
+        private IMapper _mapper;
 
-        public KlantController(WebAPIDemoContext context)
+        public KlantController(IUnitOfWork uow, IMapper mapper)
         {
-            _context = context;
+            _uow = uow;
+            _mapper = mapper;
         }
 
         // GET: api/Klant
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Klant>>> GetKlantenMetBestellingen()
+        public async Task<ActionResult<IEnumerable<KlantBestellingenDTO>>> GetKlantenMetBestellingen()
         {
-            return await _context.Klanten.ToListAsync();
+            List<Klant> klanten =  await _uow.KlantRepo.GetKlantenMetBestellingen();
+
+            // Mapping
+            List<KlantBestellingenDTO> dtos = _mapper.Map<List<KlantBestellingenDTO>>(klanten);
+
+            return Ok(dtos);
         }
 
         // GET: api/Klant/5
         [HttpGet("{id}")]
-        public async Task<ActionResult<Klant>> GetKlant(int id)
+        public async Task<ActionResult<KlantDTO>> GetKlant(int id)
         {
-            var klant = await _context.Klanten.FindAsync(id);
+            Klant model = await _uow.KlantRepo.GetObject(id);
 
-            if (klant == null)
+            if (model == null)
             {
                 return NotFound();
             }
 
-            return klant;
+            KlantDTO dto = _mapper.Map<KlantDTO>(model);
+
+            return dto;
         }
 
-        // PUT: api/Klant/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPut("{id}")]
-        public async Task<IActionResult> PutKlant(int id, Klant klant)
+        [HttpPost]
+        public async Task<ActionResult<Klant>> klantToevoegen(AddKlantDTO dto)
         {
-            if (id != klant.Id)
+            if (!ModelState.IsValid)
             {
-                return BadRequest();
+                return BadRequest(ModelState);
             }
 
-            _context.Entry(klant).State = EntityState.Modified;
+            Klant model = _mapper.Map<Klant>(dto);
+            model.AangemaaktDatum = DateTime.Now;
+
+            await _uow.KlantRepo.Add(model);
+            try
+            {
+                await _uow.SaveChangesAsync();
+            }
+            catch (DbUpdateException dbError)
+            {
+                return BadRequest(dbError);
+            }
+
+            return CreatedAtAction("klantToevoegen", new { id = model.Id }, model);
+        }
+
+        [HttpPut("{id}")]
+        public async Task<ActionResult> KlantWijzigen(int id, UpdateKlantDTO dto)
+        {
+            if (id != dto.Id)
+            {
+                return BadRequest("De opgegeven id's komen niet overeen.");
+            }
+
+            Klant model = _mapper.Map<Klant>(dto);
+            await _uow.KlantRepo.Update(model);
 
             try
             {
-                await _context.SaveChangesAsync();
+                await _uow.SaveChangesAsync();
             }
             catch (DbUpdateConcurrencyException)
             {
-                if (!KlantExists(id))
+                List<Klant> klanten = await _uow.KlantRepo.GetAll();
+                if (klanten.Any(x => x.Id == id))
                 {
-                    return NotFound();
+                    return NotFound("Er is geen klant met dit id gevonden");
                 }
                 else
                 {
@@ -73,36 +100,19 @@ namespace WebAPIDemo.Controllers
             return NoContent();
         }
 
-        // POST: api/Klant
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPost]
-        public async Task<ActionResult<Klant>> PostKlant(Klant klant)
-        {
-            _context.Klanten.Add(klant);
-            await _context.SaveChangesAsync();
-
-            return CreatedAtAction("GetKlant", new { id = klant.Id }, klant);
-        }
-
-        // DELETE: api/Klant/5
         [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteKlant(int id)
+        public async Task<IActionResult> KlantVerwijderen(int id)
         {
-            var klant = await _context.Klanten.FindAsync(id);
+            Klant? klant = await _uow.KlantRepo.GetObject(id);
             if (klant == null)
             {
-                return NotFound();
+                return NotFound("De klant met deze id is niet gevonden.");
             }
 
-            _context.Klanten.Remove(klant);
-            await _context.SaveChangesAsync();
+            await _uow.KlantRepo.Delete(klant);
+            await _uow.SaveChangesAsync();
 
-            return NoContent();
-        }
-
-        private bool KlantExists(int id)
-        {
-            return _context.Klanten.Any(e => e.Id == id);
+            return Ok($"klant met id {id} is verwijderd");
         }
     }
 }

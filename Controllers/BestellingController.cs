@@ -1,12 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using WebAPIDemo.Data;
-using WebAPIDemo.Models;
+﻿using AutoMapper;
+using WebAPIDemo.DTO.Bestellingen;
 
 namespace WebAPIDemo.Controllers
 {
@@ -14,54 +7,88 @@ namespace WebAPIDemo.Controllers
     [ApiController]
     public class BestellingController : ControllerBase
     {
-        private readonly WebAPIDemoContext _context;
-
-        public BestellingController(WebAPIDemoContext context)
+        private IUnitOfWork _uow;
+        private IMapper _mapper;
+        public BestellingController(IUnitOfWork uow, IMapper mapper)
         {
-            _context = context;
+            _uow = uow;
+            _mapper = mapper;
         }
 
-        // GET: api/Bestelling
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Bestelling>>> AlleBestellingenOphalen()
+        public async Task<ActionResult<IEnumerable<BestellingDTO>>> AlleBestellingenOphalen()
         {
-            return await _context.Bestellingen.ToListAsync();
-        }
+            List<Bestelling> modellen = await _uow.BestellingRepo.GetAllIncludingProducts();
 
-        // GET: api/Bestelling/5
-        [HttpGet("{id}")]
-        public async Task<ActionResult<Bestelling>> BestellingOphalen(int id)
-        {
-            var bestelling = await _context.Bestellingen.FindAsync(id);
-
-            if (bestelling == null)
+            if (modellen == null || modellen.Count == 0)
             {
                 return NotFound();
             }
 
-            return bestelling;
+            List<BestellingDTO> dtos = _mapper.Map<List<BestellingDTO>>(modellen);
+
+            return Ok(dtos);
         }
 
-        // PUT: api/Bestelling/5
-        [HttpPut("{id}")]
-        public async Task<IActionResult> BestellingWijzigen(int id, Bestelling bestelling)
+        [HttpGet("{id}")]
+        public async Task<ActionResult<BestellingDTO>> BestellingOphalen(int id)
         {
-            if (id != bestelling.Id)
+            Bestelling model = await _uow.BestellingRepo.GetBestellingIncludingProducts(id);
+
+            if (model == null)
             {
-                return BadRequest("De id's van de bestelling die je wil wijzigen komen niet overeen.");
+                return NotFound();
             }
 
-            _context.Bestellingen.Update(bestelling);
+            BestellingDTO dto = _mapper.Map<BestellingDTO>(model);
+
+            return Ok(dto);
+        }
+
+        [HttpPost]
+        public async Task<ActionResult<Bestelling>> BestellingToevoegen(AddBestellingDTO dto)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            Bestelling model = _mapper.Map<Bestelling>(dto);
+
+            await _uow.BestellingRepo.Add(model);
+            try
+            {
+                await _uow.SaveChangesAsync();
+            }
+            catch (DbUpdateException dbError)
+            {
+                return BadRequest(dbError);
+            }
+
+            return CreatedAtAction("BestellingToevoegen", new { id = model.Id }, model);
+        }
+
+        [HttpPut("{id}")]
+        public async Task<ActionResult> BestellingWijzigen(int id, UpdateBestellingDTO dto)
+        {
+            if (id != dto.Id)
+            {
+                return BadRequest("De opgegeven id's komen niet overeen.");
+            }
+
+            Bestelling model = _mapper.Map<Bestelling>(dto);
+            await _uow.BestellingRepo.Update(model);
 
             try
             {
-                await _context.SaveChangesAsync();
+                await _uow.SaveChangesAsync();
             }
             catch (DbUpdateConcurrencyException)
             {
-                if (!BestellingExists(id))
+                List<Bestelling> bestellingen = await _uow.BestellingRepo.GetAll();
+                if (bestellingen.Any(x => x.Id == id))
                 {
-                    return NotFound("Er is een probleem opgetreden bij het opslaan in de database.");
+                    return NotFound("Er is geen Bestelling met dit id gevonden");
                 }
                 else
                 {
@@ -69,65 +96,22 @@ namespace WebAPIDemo.Controllers
                 }
             }
 
-            return Ok($"De bestelling is gewijzigd.");
+            return NoContent();
         }
 
-            // POST: api/Bestelling
-        [HttpPost]
-        public async Task<ActionResult<Bestelling>> BestellingToevoegen(Bestelling bestelling)
-        {
-            if (_context.Bestellingen == null)
-                return NotFound("De tabel Bestellingen bestaat niet in de database.");
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            _context.Bestellingen.Add(bestelling);
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateException dbError)
-            {
-                return BadRequest(dbError);
-            }
-
-            return CreatedAtAction("BestellingOphalen", new { id = bestelling.Id }, bestelling);
-        }
-
-        // DELETE: api/Bestelling/5
         [HttpDelete("{id}")]
         public async Task<IActionResult> BestellingVerwijderen(int id)
         {
-             var bestelling = await _context.Bestellingen.FirstOrDefaultAsync(b => b.Id == id);
-
+            Bestelling? bestelling = await _uow.BestellingRepo.GetObject(id);
             if (bestelling == null)
             {
-                return NotFound("De bestelling werd niet gevonden.");
+                return NotFound("De bestelling met deze id is niet gevonden.");
             }
 
-            _context.Bestellingen.Remove(bestelling);
+            await _uow.BestellingRepo.Delete(bestelling);
+            await _uow.SaveChangesAsync();
 
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateException ex)
-            {
-                // Log de fout of geef een aangepaste foutmelding terug
-                // Algemene vorm:
-                // return StatusCode(StatusCodes.Status500InternalServerError, "Er is een fout opgetreden bij het verwijderen van de bestelling.");
-                // Verkorte vorm:
-                return StatusCode(500, "Er is een fout opgetreden bij het verwijderen van de bestelling.");
-            }
-
-            return Ok($"De bestelling met id {id} is verwijderd.");
-        }
-
-        private bool BestellingExists(int id)
-        {
-            return _context.Bestellingen.Any(e => e.Id == id);
+            return Ok($"Bestelling met id {id} is verwijderd");
         }
     }
 }
