@@ -1,10 +1,12 @@
 ﻿using AutoMapper;
+using Microsoft.AspNetCore.Authorization;
 using WebAPIDemo.DTO.Product;
 
 namespace WebAPIDemo.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class ProductController : ControllerBase
     {
         private IUnitOfWork _uow;
@@ -16,7 +18,9 @@ namespace WebAPIDemo.Controllers
             _mapper = mapper;
         }
 
+     
         [HttpGet("GetAll")]
+        [AllowAnonymous]
         public async Task<ActionResult<List<ProductDTO>>> Get()
         {
             List<Product> producten = await _uow.ProductRepo.GetAll();

@@ -1,6 +1,9 @@
-﻿namespace WebAPIDemo.Data
+﻿using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+
+namespace WebAPIDemo.Data
 {
-    public class WebAPIDemoContext : DbContext
+    public class WebAPIDemoContext : IdentityDbContext<CustomUser>
     {
         public WebAPIDemoContext(DbContextOptions<WebAPIDemoContext> options) : base(options)
         {
