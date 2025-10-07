@@ -1,5 +1,6 @@
 ﻿using AutoMapper;
 using WebAPIDemo.DTO.Bestellingen;
+using WebAPIDemo.DTO.Gebruiker;
 using WebAPIDemo.DTO.Klant;
 using WebAPIDemo.DTO.Orderlijn;
 using WebAPIDemo.DTO.Product;
@@ -12,6 +13,11 @@ namespace WebAPIDemo.Configuration
         public AutoMapperProfile()
         {
             // Defenieer hier je mappings in de ctor
+            // Gebruikers
+            CreateMap<CustomUser, GebruikerMetRollenDTO>();
+
+            CreateMap<GebruikerWijzigenDto, CustomUser>();
+
             // Producten
             CreateMap<AddProductDTO, Product>()
                 .ForMember(dest => dest.Prijs, x => x.MapFrom(src => src.Price));//Expliciete mappings met ForMember m.b.v. Method Chaining

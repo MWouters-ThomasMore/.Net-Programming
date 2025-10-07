@@ -1,27 +1,176 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using AutoMapper;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore.Query.Internal;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using WebAPIDemo.Data.Resources;
 using WebAPIDemo.DTO.Gebruiker;
 
 namespace WebAPIDemo.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize]
+    [Authorize(Roles = StringResources.Role_Admin)]
+    //[Authorize(Roles = "admin")]
     public class GebruikerController : ControllerBase
     {
         private UserManager<CustomUser> _userManager;
         private RoleManager<IdentityRole> _roleManager;
         private SignInManager<CustomUser> _signInManager;
+        private IMapper _mapper;
 
-        public GebruikerController(RoleManager<IdentityRole> roleManager, UserManager<CustomUser> userManager, SignInManager<CustomUser> signInManager)
+        public GebruikerController(RoleManager<IdentityRole> roleManager, UserManager<CustomUser> userManager, SignInManager<CustomUser> signInManager, IMapper mapper)
         {
             _roleManager = roleManager;
             _userManager = userManager;
             _signInManager = signInManager;
+            _mapper = mapper;
         }
+
+
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateGebruiker(string id, GebruikerWijzigenDto dto)
+        {
+            if (dto == null || id != dto.Id)
+            {
+                return BadRequest(ModelState);
+            }
+
+            CustomUser? user = await _userManager.FindByEmailAsync(dto.Email);
+            if (user == null)
+            {
+                return NotFound(ModelState);
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            // Update model met nieuwe data uit DTO
+            user = _mapper.Map<CustomUser>(dto);
+
+            // Wachtwoord wijzigen
+            if (!string.IsNullOrWhiteSpace(dto.Password))
+            {
+                var result = await _userManager.ChangePasswordAsync(user, dto.CurrentPassword, dto.Password);
+                if (!result.Succeeded)
+                {
+                    foreach (var error in result.Errors)
+                    {
+                        ModelState.AddModelError("error", error.Description);
+                    }
+
+                    return BadRequest(ModelState);
+                }
+            }
+
+            // Update user
+            var updateResult = await _userManager.UpdateAsync(user);
+
+            if (updateResult.Succeeded)
+            {
+                return Ok("De gebruiker is gewijzigd");
+            }
+            else
+            {
+                if (updateResult.Errors.Any())
+                {
+                    foreach (var error in updateResult.Errors)
+                    {
+                        ModelState.AddModelError("message", error.Description);
+                    }
+                }
+                return BadRequest(ModelState);
+            }
+        }
+
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> Delete (string id)
+        {
+            CustomUser? user = await _userManager.FindByIdAsync(id);
+            if (user == null)
+            {
+                return NotFound(ModelState);
+            }
+
+            var result = await _userManager.DeleteAsync(user);
+
+            if (result.Succeeded)
+            {
+                return Ok("De gebruiker is succesvol verwijderd.");
+            }
+            else
+            {
+                if (result.Errors.Any())
+                {
+                    foreach (var error in result.Errors)
+                    {
+                        ModelState.AddModelError("message", error.Description);
+                    }
+                }
+                return BadRequest(ModelState);
+            }
+        }
+
+        [HttpPost("EditPermission")]
+        public async Task<IActionResult> EditPermission(EditPermissionDTO dto)
+        {
+            // Defensive coding -> Bestaat de gebruiker & de rol?
+            CustomUser? gebruiker = await _userManager.FindByEmailAsync(dto.Email);
+            if (gebruiker == null)
+            {
+                ModelState.AddModelError("error", "gebruiker bestaat niet");
+                return BadRequest(ModelState);
+            }
+
+            IdentityRole? rol = await _roleManager.FindByNameAsync(dto.RolNaam);
+            if (rol == null)
+            {
+                ModelState.AddModelError("error", "rol bestaat niet");
+                return BadRequest(ModelState);
+            }
+
+            IdentityResult result = null;
+
+            if (dto.Operation == EditOperation.Grant)
+            {
+                result = await _userManager.AddToRoleAsync(gebruiker, rol.Name);
+            }
+            else if (dto.Operation == EditOperation.Remove)
+            {
+                result = await _userManager.RemoveFromRoleAsync(gebruiker, rol.Name);
+            }
+
+            if (result.Succeeded)
+            {
+                return Ok();
+            }
+            else
+            {
+                return BadRequest(ModelState);
+            }
+        }
+
+        [HttpPost("GetAlleUsersMetRollen")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetAlleUsersMetRollen()
+        {
+            List<CustomUser> users = await _userManager.Users.ToListAsync();
+
+            // We zetten om naar dto omdat we nooit met modellen met de user willen communiceren
+            List<GebruikerMetRollenDTO> dtos = _mapper.Map<List<GebruikerMetRollenDTO>>(users);
+
+            // Haal rollen op
+            for (int i = 0; i < dtos.Count; i++)
+            {
+                GebruikerMetRollenDTO dto = dtos[i];
+                dto.Roles = await _userManager.GetRolesAsync(users[i]);
+            }
+
+            return Ok(dtos);
+        }
+
 
         [HttpPost("login")]
         [AllowAnonymous]
@@ -142,6 +291,10 @@ namespace WebAPIDemo.Controllers
 
             if (result.Succeeded)
             {
+                // Voeg standaard rol toe bij het registreren.
+                //await _userManager.AddToRoleAsync(user, "user");
+                await _userManager.AddToRoleAsync(user, StringResources.Role_User);
+
                 return Created();
             }
             else
