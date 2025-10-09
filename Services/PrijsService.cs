@@ -2,11 +2,28 @@
 {
     public class PrijsService
     {
-        public decimal BerekenTotaalPrijs(decimal prijs, decimal btw)
+        private readonly PrijsRepo _prijsRepo;
+
+        public PrijsService(PrijsRepo prijsRepo)
         {
-            decimal prijsMetBtw = prijs + prijs * btw;
+            _prijsRepo = prijsRepo;
+        }
+
+        public decimal BerekenTotaalPrijs(int id, decimal btwPercentage)
+        {
+            decimal prijs = _prijsRepo.GetPrijsVoorProduct(id);
+
+            if (prijs < 0)
+            {
+                throw new ArgumentException("Prijs moet groter zijn dan of gelijk aan 0.", nameof(prijs));
+            }
+
+            //bereken eerst de btw
+            decimal prijsMetBtw = prijs + (prijs * btwPercentage);
+
             if (prijs > 1000)
             {
+                //geef 10% korting
                 return Math.Round(prijsMetBtw * 0.9m, 2);
             }
 
