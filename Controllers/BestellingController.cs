@@ -66,7 +66,7 @@ namespace WebAPIDemo.Controllers
                 return BadRequest(dbError);
             }
 
-            return CreatedAtAction("BestellingToevoegen", new { id = model.Id }, model);
+            return CreatedAtAction(nameof(BestellingToevoegen), new { id = model.Id }, model);
         }
 
         [HttpPut("{id}")]
